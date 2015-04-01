@@ -104,25 +104,64 @@ genkernel all --no-clean --no-mountboot --zfs --bootloader=grub2 --callback="eme
 sed -i -e "s/\(.*\)\/\(BOOT\|ROOT\|SWAP\)\(.*\)/\#\1\/\2\3/g" /etc/fstab
 
 # Replace your MAKEOPTS with -jX where x is your number of cpu cores/threads plus 1
-echo "MAKEOPTS="-j9"" >> /etc/portage/make.conf
+echo $'MAKEOPTS="-j9"' >> /etc/portage/make.conf
+
+# Set hostname
+rm /etc/conf.d/hostname && echo $'hostname="your hostname"' /etc/conf.d/hostname
 
 # Set desktop profile (adapt for choice of desktop)
-eselect 
+# eselect profile set 3
 
 # Set video cards and input devices in make.conf (adapt for video cards)
-echo "VIDEO_CARDS="nvidia"" >> /etc/portage/make.conf
-echo "INPUT_DEVICES="evdev synaptics"" >> /etc/portage/make.conf
+echo $'VIDEO_CARDS="nvidia"' >> /etc/portage/make.conf
+echo $'INPUT_DEVICES="evdev synaptics"' >> /etc/portage/make.conf
 
-# Install firmware for wireless cards
-emerge linux-firmware
+# Mask newest nvidia driver (only if you need to, or need the driver)
+# echo ">x11-drivers/nvidia-drivers-340" >> /etc/portage/package.mask/nvidia-drivers
 
-# Install networkmanager
-emerge networkmanager
-rc-update add NetworkManager default
+# Install Layman
+emerge app-portage/layman
+
+# Add KDE overlay
+layman --fetch --add kde
+echo "source /var/lib/layman/make.conf" >> /etc/portage/make.conf
+
+# Switch to plasma profile
+cd /etc/portage
+rm make.profile
+ln -s ../../usr/portage/profiles/default/linux/amd64/13.0/desktop/plasma/ make.profile
+
+# Rebuild packages
+emerge -uDNav @world
+
+# Unmask plasma 5
+cd /etc/portage/package.unmask
+ln -s /var/lib/layman/kde/Documentation/package.unmask/kde-plasma-5.2
+echo "-qt5" >> /etc/portage/profile/use.stable.mask
+cd /etc/portage/package.accept_keywords
+ln -s /var/lib/layman/kde/Documentation/package.keywords/kde-frameworks-5.7.keywords
+ln -s /var/lib/layman/kde/Documentation/package.keywords/kde-plasma-5.2.keywords
 
 # Install x11
-emerge xorg-x11
-emerge xinit
+emerge x11-base/xorg-x11
+emerge x11-apps/xinit
+
+# Install plasma 5
+emerge @kde-plasma
+
+# Install networkmanager
+emerge net-misc/networkmanager
+rc-update add NetworkManager default
+
+# Install syslog
+emerge app-admin/syslog-ng
+
+# Change root password
+passwd
+
+# Create new user
+useradd -m -g users -G wheel,video,audio -s /bin/bash "your username"
+passwd "your username"
 
 # Make recovery snapshot after booting into new install
 zfs snapshot rpool/ROOT/gentoo@install
