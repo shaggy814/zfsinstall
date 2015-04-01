@@ -1,0 +1,159 @@
+#
+# Boot Linux Live CD with ZFS support
+# fearedbliss maintains a variant of System Rescue CD that is highly recommended:
+# http://ftp.osuosl.org/pub/funtoo/distfiles/sysresccd/
+#
+
+# Create pool
+zpool create -f -o ashift=12 -o cachefile=/tmp/zpool.cache -O normalization=formD -m none -R /mnt/gentoo rpool /dev/sda
+
+# Create rootfs
+zfs create -o mountpoint=none rpool/ROOT
+zfs create -o mountpoint=/ rpool/ROOT/gentoo
+
+# Create home directories
+zfs create -o mountpoint=/home rpool/HOME
+zfs create -o mountpoint=/root rpool/HOME/root
+
+# Create portage directories
+zfs create -o mountpoint=none -o setuid=off rpool/GENTOO
+zfs create -o mountpoint=/usr/portage -o atime=off rpool/GENTOO/portage
+zfs create -o mountpoint=/usr/portage/distfiles rpool/GENTOO/distfiles
+
+# Create portage build directory
+zfs create -o mountpoint=/var/tmp/portage -o compression=lz4 -o sync=disabled rpool/GENTOO/build-dir
+
+# Create optional packages directory
+zfs create -o mountpoint=/usr/portage/packages rpool/GENTOO/packages
+
+# Create optional ccache directory
+zfs create -o mountpoint=/var/tmp/ccache -o compression=lz4 rpool/GENTOO/ccache
+
+# Set bootfs
+zpool set bootfs=rpool/ROOT/gentoo rpool
+
+# Download stage3
+wget 'ftp://gentoo.osuosl.org/pub/gentoo/releases/amd64/autobuilds/current-stage3-amd64/stage3-amd64-[0-9]*.tar.bz2'
+
+# Extract stage3
+tar -xvjpf stage3-amd64-*.tar.bz2 -C /mnt/gentoo
+
+# Copy zpool.cache into chroot
+mkdir -p /mnt/gentoo/etc/zfs
+cp /tmp/zpool.cache /mnt/gentoo/etc/zfs/zpool.cache
+
+# Copy resolv.conf into chroot
+cp /etc/resolv.conf /mnt/gentoo/etc/resolv.conf
+
+# Mount filesystems
+mount -t proc none /mnt/gentoo/proc
+mount --rbind /dev /mnt/gentoo/dev
+mount --rbind /sys /mnt/gentoo/sys
+
+# chroot
+chroot /mnt/gentoo /bin/bash
+env-update; source /etc/profile; export PS1="(chroot) $PS1"; cd
+
+# Get portage snapshot (use OSUOSL mirror because it is usually fast)
+env GENTOO_MIRRORS="http://gentoo.osuosl.org" emerge-webrsync
+
+# Install genkernel
+emerge sys-kernel/genkernel
+
+# Mask newer sources
+echo ">sys-kernel/gentoo-source-3.16" >> /etc/portage/package.mask/gentoo-sources
+
+# Install sources
+emerge sys-kernel/gentoo-sources
+
+# Build initial kernel (required for checks in sys-kernel/spl and sys-fs/zfs)
+genkernel kernel --no-clean --no-mountboot
+
+# Install ZFS
+echo "sys-kernel/spl ~amd64" >> /etc/portage/package.accept_keywords
+echo "sys-fs/zfs-kmod ~amd64" >> /etc/portage/package.accept_keywords
+echo "sys-fs/zfs ~amd64" >> /etc/portage/package.accept_keywords
+emerge sys-fs/zfs
+
+# Add zfs to boot runlevel
+rc-update add zfs boot
+
+# Install gptfdisk
+emerge sys-apps/gptfdisk
+
+# Make BIOS Boot Partition (make certain /dev/sda is your actual block device!)
+sgdisk --new=2:48:2047 --typecode=2:EF02 --change-name=2:"BIOS boot partition" /dev/sda
+
+# Flush the page cache to ensure GRUB2 sees the latest disk content
+echo 1 > /proc/sys/vm/drop_caches
+
+# Install GRUB2
+echo "sys-boot/grub:2 libzfs" >> /etc/portage/package.use/grub:2
+echo "sys-boot/grub:2 ~amd64" >> /etc/portage/package.accept_keywords
+emerge sys-boot/grub:2
+touch /etc/mtab
+grub2-install /dev/sda
+
+# We must create an empty configuration file so genkernel fines the right one.
+touch /boot/grub/grub.cfg
+
+# Build kernel and initramfs
+genkernel all --no-clean --no-mountboot --zfs --bootloader=grub2 --callback="emerge @module-rebuild"
+
+# Comment the BOOT, ROOT and SWAP lines in /etc/fstab
+sed -i -e "s/\(.*\)\/\(BOOT\|ROOT\|SWAP\)\(.*\)/\#\1\/\2\3/g" /etc/fstab
+
+# Replace your MAKEOPTS with -jX where x is your number of cpu cores/threads plus 1
+echo "MAKEOPTS="-j9"" >> /etc/portage/make.conf
+
+# Set desktop profile (adapt for choice of desktop)
+eselect 
+
+# Set video cards and input devices in make.conf (adapt for video cards)
+echo "VIDEO_CARDS="nvidia"" >> /etc/portage/make.conf
+echo "INPUT_DEVICES="evdev synaptics"" >> /etc/portage/make.conf
+
+# Install firmware for wireless cards
+emerge linux-firmware
+
+# Install networkmanager
+emerge networkmanager
+rc-update add NetworkManager default
+
+# Install x11
+emerge xorg-x11
+emerge xinit
+
+# Make recovery snapshot after booting into new install
+zfs snapshot rpool/ROOT/gentoo@install
+
+# Additional tips
+
+# ARC tuning - You can configure the RAM that ARC uses in bytes
+echo options zfs zfs_arc_max=536870912 >> /etc/modprobe.d/zfs.conf
+
+# Set portage niceness to minimize potential for updates to cause lag
+echo PORTAGE_NICENESS=19 >> /etc/make.conf
+
+# Set portage to compile in a CGROUP to minimize lag
+cat << END > /usr/local/sbin/portage-cgroup
+#!/bin/sh
+# $1 must be the portage PID
+
+cgroup=$(mktemp -d --tmpdir=/sys/fs/cgroup/cpu portage-XXXX) &&
+echo $1 > "${cgroup}/tasks" &&
+echo 1 > "${cgroup}/notify_on_release"
+echo 256 > "${cgroup}/cpu.shares"
+END
+chmod u+x /usr/local/sbin/portage-cgroup
+echo 'PORTAGE_IONICE_COMMAND="/usr/local/sbin/portage-cgroup \${PID}"' >> /etc/make.conf
+
+# Swap support
+zfs create -o sync=always -o primarycache=metadata -o secondarycache=none -b 4K -V 8G rpool/swap
+mkswap -f /dev/zvol/rpool/swap
+zfs snapshot rpool/swap@install
+# Edit fstab to use swap here
+
+#
+# Note: Integrate `zfs create -o mountpoint=/home/user rpool/HOME/user` into procedure
+#
