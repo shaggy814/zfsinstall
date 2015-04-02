@@ -123,6 +123,7 @@ echo $'INPUT_DEVICES="evdev synaptics"' >> /etc/portage/make.conf
 # Mask newest nvidia driver (only if you need to, or need the driver)
 # echo ">x11-drivers/nvidia-drivers-340" >> /etc/portage/package.mask/nvidia-drivers
 # emerge x11-drivers/nvidia-drivers
+# eselect opengl set nvidia
 
 # Install Layman
 emerge app-portage/layman
