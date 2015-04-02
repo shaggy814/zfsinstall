@@ -70,9 +70,13 @@ emerge sys-kernel/gentoo-sources
 genkernel kernel --no-clean --no-mountboot
 
 # Install ZFS
-echo "sys-kernel/spl ~amd64" >> /etc/portage/package.accept_keywords
-echo "sys-fs/zfs-kmod ~amd64" >> /etc/portage/package.accept_keywords
-echo "sys-fs/zfs ~amd64" >> /etc/portage/package.accept_keywords
+rm /etc/portage/package.accept_keywords
+mkdir /etc/portage/package.accept_keywords
+echo "sys-kernel/spl ~amd64" >> /etc/portage/package.accept_keywords.zfs
+echo "sys-fs/zfs-kmod ~amd64" >> /etc/portage/package.accept_keywords.zfs
+echo "sys-fs/zfs ~amd64" >> /etc/portage/package.accept_keywords.zfs
+cd /etc/portage/package.accept_keywords
+ln -s /etc/portage/package.accept_keywords.zfs
 emerge sys-fs/zfs
 
 # Add zfs to boot runlevel
