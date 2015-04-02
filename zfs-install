@@ -103,27 +103,6 @@ genkernel all --no-clean --no-mountboot --zfs --bootloader=grub2 --callback="eme
 # Comment the BOOT, ROOT and SWAP lines in /etc/fstab
 sed -i -e "s/\(.*\)\/\(BOOT\|ROOT\|SWAP\)\(.*\)/\#\1\/\2\3/g" /etc/fstab
 
-# Replace your MAKEOPTS with -jX where x is your number of cpu cores/threads plus 1
-echo "MAKEOPTS="-j9"" >> /etc/portage/make.conf
-
-# Set desktop profile (adapt for choice of desktop)
-eselect 
-
-# Set video cards and input devices in make.conf (adapt for video cards)
-echo "VIDEO_CARDS="nvidia"" >> /etc/portage/make.conf
-echo "INPUT_DEVICES="evdev synaptics"" >> /etc/portage/make.conf
-
-# Install firmware for wireless cards
-emerge linux-firmware
-
-# Install networkmanager
-emerge networkmanager
-rc-update add NetworkManager default
-
-# Install x11
-emerge xorg-x11
-emerge xinit
-
 # Make recovery snapshot after booting into new install
 zfs snapshot rpool/ROOT/gentoo@install
 
