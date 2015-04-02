@@ -141,6 +141,8 @@ ln -s ../../usr/portage/profiles/default/linux/amd64/13.0/desktop/plasma/ make.p
 emerge -uDNav @world
 
 # Unmask plasma 5
+rm /etc/portage/package.unmask
+mkdir /etc/portage/package.unmask
 cd /etc/portage/package.unmask
 ln -s /var/lib/layman/kde/Documentation/package.unmask/kde-plasma-5.2
 echo "-qt5" >> /etc/portage/profile/use.stable.mask
