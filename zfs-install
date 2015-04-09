@@ -61,7 +61,7 @@ env GENTOO_MIRRORS="http://gentoo.osuosl.org" emerge-webrsync
 emerge sys-kernel/genkernel
 
 # Mask newer sources
-echo ">sys-kernel/gentoo-source-3.16" >> /etc/portage/package.mask/gentoo-sources
+echo ">sys-kernel/gentoo-sources-3.16" >> /etc/portage/package.mask/gentoo-sources
 
 # Install sources
 emerge sys-kernel/gentoo-sources
